@@ -1,24 +1,38 @@
 import socket
+import time
 
-localIP    = "127.0.0.1"
-localPort  = 20001
-bufferSize = 1024
+# UDP Server
+localAddress = ("localhost", 20001)
+buffersize = 1024
+filename = "dariodoserver.jpg"
 
-# Crie um socket de datagrama
-UDPServerSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
+# Socket UDP do server
+print("Server is creating a UDP socket.")
+udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+udp.bind(localAddress)
+print("UDP server now is up and running!")
 
-# Vincular ao endereço e ip
-UDPServerSocket.bind((localIP, localPort))
-print("Servido ligado e ouvindo")
+f = open(filename, "wb")
+data, address = udp.recvfrom(buffersize)
 
-# Escutando os dados de entrada
-while(True):
-    bytesAddressPair = UDPServerSocket.recvfrom(bufferSize)
-    
-    message = bytesAddressPair[0]
-    address = bytesAddressPair[1]
-    
-    print(address, message)
+while(data != '\x18'.encode()):
+    f.write(data)
+    data, address = udp.recvfrom(buffersize)
+    print("Recebendo...")
 
-    # Sending a reply to client
-    UDPServerSocket.sendto(message, address)
+f.close()
+time.sleep(1)
+
+# Enviando arquivo
+ff = open(filename, "rb")
+data = ff.read(buffersize)
+
+while(data):
+    if(udp.sendto(data, address)):
+        print("Enviando...")
+    data = ff.read(buffersize)
+
+udp.sendto('\x18'.encode(), address)
+ff.close()
+
+udp.close()

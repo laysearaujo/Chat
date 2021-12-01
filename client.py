@@ -1,23 +1,38 @@
 import socket
 
-name = input("Digite seu nome:\n")
+# UDP Client
+address = ("localhost", 20001)
+buffersize = 1024
+filename = "dariodoclient.jpg"
 
-msgFromClient = "Servidor ligado"
-bytesToSend   = str.encode("hi, meu nome eh "+name)
+# Socket UDP do client
+udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-serverAddressPort = ("127.0.0.1", 20001)
-bufferSize        = 1024
+# Enviando arquivo
+f = open(filename, "rb")
+data = f.read(buffersize)
 
-# Create a UDP socket at client side
-UDPClientSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
+while(data):
+    if(udp.sendto(data, address)):
+        print("Enviando...")
+    data = f.read(buffersize)
 
-# Enviar para o servidor usando o socket UDP criado
-while msgFromClient != "bye":
-    UDPClientSocket.sendto(bytesToSend, serverAddressPort)
-    
-    msgFromServer = UDPClientSocket.recvfrom(bufferSize)
-    msg           = "mensagem do servidor {}".format(msgFromServer[0])
-    print(msg)
+udp.sendto('\x18'.encode(), address)
+f.close()
 
-    msgFromClient = input()
-    bytesToSend   = str.encode(msgFromClient)
+# Recebendo o mesmo arquivo do client
+address = ("localhost", 20001)
+print("Client is creating a UDP socket.")
+print("Up and running!")
+
+filename = "outrodariodoclient.jpg"
+ff = open(filename, "wb")
+data, address = udp.recvfrom(buffersize)
+
+while(data != '\x18'.encode()):
+    ff.write(data)
+    data, address = udp.recvfrom(buffersize)
+    print("Recebendo...")
+
+ff.close()
+udp.close()

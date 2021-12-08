@@ -1,38 +1,17 @@
 import socket
+import common
 
-# UDP Client
-address = ("localhost", 20001)
-buffersize = 1024
-filename = "dariodoclient.jpg"
+ip = "127.0.0.1"
 
-# Socket UDP do client
+myPort   = 12121
+destPort = 13132
+
 udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+udp.bind((ip, myPort))
 
-# Enviando arquivo
-f = open(filename, "rb")
-data = f.read(buffersize)
+print("Cliente Ligado!")
 
-while(data):
-    if(udp.sendto(data, address)):
-        print("Enviando...")
-    data = f.read(buffersize)
+feeder = common.feeder("base_client.jpg",300)
+saver = common.saver("client.png")
 
-udp.sendto('\x18'.encode(), address)
-f.close()
-
-# Recebendo o mesmo arquivo do client
-address = ("localhost", 20001)
-print("Client is creating a UDP socket.")
-print("Up and running!")
-
-filename = "outrodariodoclient.jpg"
-ff = open(filename, "wb")
-data, address = udp.recvfrom(buffersize)
-
-while(data != '\x18'.encode()):
-    ff.write(data)
-    data, address = udp.recvfrom(buffersize)
-    print("Recebendo...")
-
-ff.close()
-udp.close()
+common.Rdt(udp, feeder, saver, True, (ip, destPort), 100, 2048).transmit()

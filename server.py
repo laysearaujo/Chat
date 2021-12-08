@@ -1,38 +1,17 @@
 import socket
-import time
+import common
 
-# UDP Server
-localAddress = ("localhost", 20001)
-buffersize = 1024
-filename = "dariodoserver.jpg"
+ip = "127.0.0.1"
 
-# Socket UDP do server
-print("Server is creating a UDP socket.")
+myPort   = 13132
+destPort = 12121
+
 udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-udp.bind(localAddress)
-print("UDP server now is up and running!")
+udp.bind((ip, myPort))
 
-f = open(filename, "wb")
-data, address = udp.recvfrom(buffersize)
+print("Servidor ligado!")
 
-while(data != '\x18'.encode()):
-    f.write(data)
-    data, address = udp.recvfrom(buffersize)
-    print("Recebendo...")
+feeder = common.feeder("base_server.png",300)
+saver = common.saver("server.jpg")
 
-f.close()
-time.sleep(1)
-
-# Enviando arquivo
-ff = open(filename, "rb")
-data = ff.read(buffersize)
-
-while(data):
-    if(udp.sendto(data, address)):
-        print("Enviando...")
-    data = ff.read(buffersize)
-
-udp.sendto('\x18'.encode(), address)
-ff.close()
-
-udp.close()
+common.Rdt(udp, feeder, saver, False, (ip, destPort), 100, 2048).transmit()

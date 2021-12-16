@@ -1,138 +1,212 @@
-import time
-import hashlib
-import warnings
+import socket
+from struct import unpack
 
-class Timer:
-    def __init__(self):
-        self.start_time = None
+# classe principal do socket udp
+class socket_udp:
+    seqNumber = 0
+    connected = {}
 
-    def restart(self):
-        self.start_time = time.perf_counter()
+    qtd_participants = 0
 
-    def check(self):
-        if self.start_time is None:
-            raise Exception(f"Use restart() para iniciá-lo")
+    # abrindo conexão via socket para o servidor
+    def open_socket_server(self, ip, port):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.server_address = (ip, port)
+        self.type = type
+        print('Servidor ligado!')
+        self.sock.bind(self.server_address)
 
-        elapsed_time = time.perf_counter() - self.start_time
-        return elapsed_time
+    # abrindo conexão via socket para o client
+    def open_socket_client(self, ip, port):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.server_address = (ip, port)
+        self.type = type
+        print('Cliente ligado!')
+        self.connect('server', self.server_address)
 
+     # fecha a conexão
+    def close_connection(self):
+        print('\nSocket fechado!')
+        self.sock.close() 
 
-class saver:
-    def __init__(self,filename):
-        self.file = open(filename,'wb')
+    # enviar mensagem
+    def send(self, msg, address = ''):
+        if not address:
+            address = self.server_address 
 
-    def save_data(self,data):
-        self.file.write(data)
+        return self.sock.sendto(msg, address)
 
-    def close(self):
-        self.file.close()
-
-
-class Rdt:
-    def __init__(self,socket, feeder,saver,first_sender,client_adress,timer_limit,size):
-
-        self.socket = socket
-        self.saver = saver
-        self.feeder = feeder
-        self.timer_limit = timer_limit
-        self.size = size
-        self.client_adress = client_adress
+    # receber mensagem
+    def receive(self, size, address = ''):
+        if not address:
+            return self.sock.recvfrom(size)
         
-        self.timer = Timer()
-        self.action = True
-        self.sender_sequence = 0
-        self.receiver_ack = 0
-        self.retransmit = False
-
-        if first_sender:
-            self.state = 1
-            self.feeder.load_next_data()
-        else: self.state = 2
-
-    @staticmethod
-    def decode_msg(bytecode):
-        string_head = bytecode.decode('utf-8')
-        decoded_msg = eval(string_head)
-        return decoded_msg
-    @staticmethod
-    def encode_msg(msg):
-        string_head = str(msg)
-        bytecode = string_head.encode('utf-8')
-        return bytecode
-
-    @staticmethod
-    def verify_sum(data):
-        return hashlib.md5(data).hexdigest()
-
-    def send(self,msg):
-        self.socket.sendto(msg,self.client_adress)
-        self.timer.restart()
-        self.state = 2
-
-    def recieve_response(self):
-        if self.timer.start_time==None or self.timer.check()<self.timer_limit:
-            encoded_response,self.client_adress = self.socket.recvfrom(self.size)
-            if(encoded_response):
-                self.last_response = self.decode_msg(encoded_response)
-                if self.last_response["verify_sum"]!=self.verify_sum(self.last_response["data"]):
-                    warnings.warn("pacote recebido invalido")
-                else:
-                    self.receiver_ack = self.last_response["seq"]
-                    if not self.last_response['finish_file_transmission']:
-                        self.saver.save_data(self.last_response["data"])
-                    else: 
-                        if self.feeder.finish and self.last_response["ack"]==self.sender_sequence: 
-                            self.action = False
-
-                if self.last_response["ack"]!=self.sender_sequence:
-                    self.retransmit = True
-                    warnings.warn("Não recebeu o ultimo pacote corretamente")
-                else:
-                    self.retransmit = False
-                    self.sender_sequence = 1 if self.sender_sequence==0 else 0 
-                    self.feeder.load_next_data()
-                        
-                self.state = 1
-            else:
-                self.state = 2    
-        else:
-            self.retransmit = True
-            self.state=1
+        return self.sock.recvfrom(size)
     
-    def transmit(self):
-        while self.action:
-            if self.state==1:
-                data_to_send = self.feeder.get_data()
-                msg = {
-                    "ack":self.receiver_ack,
-                    "seq":self.sender_sequence,
-                    "verify_sum":self.verify_sum(data_to_send),
-                    "finish_file_transmission":self.feeder.finish,
-                    "data":data_to_send
-                }
-                encoded_msg = self.encode_msg(msg)
-                self.send(encoded_msg)
-                if hasattr(self,'last_response') and self.feeder.finish and self.last_response['finish_file_transmission'] and not self.retransmit: 
-                     self.action = False
-            elif self.state == 2:
-                self.recieve_response()
-        self.saver.close()
-        self.socket.close()
+    # criar pacotes com a mensagem e a sequencia
+    def make_package(self, msg, seq):
+        cksum = self.check(msg)
 
+        return str({
+            'cksum': cksum,
+            'data': msg,
+            'seq': seq
+        }).encode()
+    
+    # criar e atualizar pacotes
+    def send_message(self, msg, address = ''):
+        self.sock.settimeout(5)
+        if not address:
+            address = self.server_address
+        
+        package = self.make_package(msg, self.get_seq_number(address))
+        
+        ack = False 
 
-class feeder:
-    def __init__(self,filename,size):
-        self.file = open(filename,'rb')
-        self.size = size
-        self.data = None
-        self.finish = False
+        while not ack:
+            self.send(package, address)
 
-    def get_data(self):
-        return self.data
+            try:
+                msg, recv_address = self.receive(4096)
+            except socket.timeout:
+                print('tempo máximo de espera atigindo')
+            else:
+                msgACK = eval(msg.decode())['data'].decode()
+                if recv_address != address or msgACK != 'ACK':
+                    continue
+                
+                ack = self.recv_package(msg, address)
+        
+        self.update_seq_number(address)
+        self.sock.settimeout(None)
+    
+    # receber mensagens
+    def receiver_message(self):
+        while True:
+            package, address = self.sock.recvfrom(4096)
+            # criar nova conexão
+            new_connection = self.check_connection(package, address)
+            # receber frequencias dos números
+            seq = self.get_seq_number(address)
+            not_corrupt = self.recv_package(package, address, 'receiver')
+            # quantidade máx de participantes 5
+            if self.qtd_participants < 5:
+                self.qtd_participants += 1
+            # caso o pacote não esteja corrompido ele envia e atualiza
+            if not_corrupt:
+                package_ack = self.make_package(bytes('ACK', 'utf8'), seq)
+                self.send(package_ack, address)
+                self.update_seq_number(address)
+                return package, address, new_connection
+            # caso não, ele cria um novo pacote para enviar
+            else:
+                self.send(self.make_package(bytes('ACK', 'utf8'), 1 - seq), address)
+    
+    # mostra o user
+    def get_user(self, address = ''):
+        if not address:
+            address = self.server_address
+        
+        if address in self.connected:
+            return self.connected[address]['user']
+        else:
+            self.connect(address[1], address)
+            return self.connected[address]['user']
+    
+    # mostra lista de conectados 
+    def get_connecteds(self):
+        msg_list = 'Lista de usuarios:'
+        for address in self.connected:
+            msg_list += '\n' + str(self.connected[address]['user'])
+
+        return msg_list
+    
+    # faz uma conexão
+    def connect(self, user, address):
+        self.connected[address] = {
+            'user': user,
+            'seqNumber': 0
+        }
+        print('user', user, 'connected')
+    
+    # checa as conexões
+    def check_connection(self, package, address):
+        if address in self.connected:
+            return False
+        
+        if package:
+            dicio = eval(package.decode())
+            user = dicio['data'].decode()
+            self.connect(user, address)
+            return True
+        else:
+            return False
  
-    def load_next_data(self):
-        if not self.finish:
-            self.data = self.file.read(self.size)
-            if self.data==b'': 
-                self.finish = True
-                self.file.close()
+    # desconecta
+    def disconnect(self, address):
+        if address in self.connected:
+            print(self.connected[address]['user'] + ' disconnected')
+            del self.connected[address]
+    
+    # pega o número de frequancia
+    def get_seq_number(self, address = ''):
+        if not address:
+            address = self.server_address
+        
+        if address in self.connected:
+            return self.connected[address]['seqNumber']
+        else:
+            self.connect(address[1], address)
+            return self.connected[address]['seqNumber']
+    
+    # atualiza número de frequencia
+    def update_seq_number(self, address = ''):
+        if not address:
+            address = self.server_address
+        
+        self.connected[address]['seqNumber'] = 1 - self.connected[address]['seqNumber']
+    
+    # verifica se existe mensagens
+    def has_message(self):
+        return self.sock.recv is not None
+    
+    # checa as mensagens
+    def check(self, msg):
+        cksum = 0
+
+        array = bytearray(msg)[::-1]
+        lenght = len(array)
+
+        for i in range(lenght):
+            if i % 2:
+                continue 
+            
+            cksum += (array[i] << 8)
+            if i + 1 < lenght:
+                cksum += array[i+1]
+
+        while cksum >> 16:
+            cksum = (cksum >> 16) + (cksum & 0xffff)
+        
+        cksum = cksum ^ 0xffff
+        return cksum
+    
+    # envia para todos as mensagens que chegam no servidor
+    def send_to_all(self, msg):
+        for address in self.connected:
+            self.send_message(msg, address)
+    
+    # recebe o pacote
+    def recv_package(self, msg, address, type='sender'):    
+        dicio = eval(msg.decode())
+        cksum = self.check(dicio['data'])
+        
+        seq = self.get_seq_number(address)
+
+        if cksum != dicio['cksum']:
+            return False
+
+        if seq != dicio['seq']:
+            return False
+
+        return True

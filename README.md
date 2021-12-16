@@ -1,6 +1,6 @@
 # Pojeto de Infra-Estrutura de Comunicação
 
-## Requirementos
+## Requerimentos
 
 * Python >= 3.8
 

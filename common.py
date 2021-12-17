@@ -12,7 +12,6 @@ class socket_udp:
     def open_socket_server(self, ip, port):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.server_address = (ip, port)
-        self.type = type
         print('Servidor ligado!')
         self.sock.bind(self.server_address)
 
@@ -20,7 +19,6 @@ class socket_udp:
     def open_socket_client(self, ip, port):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.server_address = (ip, port)
-        self.type = type
         print('Cliente ligado!')
         self.connect('server', self.server_address)
 

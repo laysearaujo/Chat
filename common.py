@@ -125,7 +125,7 @@ class socket_udp:
             'user': user,
             'seqNumber': 0
         }
-        print('user', user, 'connected')
+        print('usuario', user, 'conectado')
     
     # checa as conexões
     def check_connection(self, package, address):

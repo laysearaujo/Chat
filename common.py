@@ -4,7 +4,6 @@ import threading
 import time
 import hashlib
 import warnings
-import sys
 from datetime import datetime
 
 class Server:

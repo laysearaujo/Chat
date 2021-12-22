@@ -1,6 +1,4 @@
-import time
-import hashlib
-import warnings
+import json
 import socket
 import threading
 from datetime import datetime
@@ -33,28 +31,35 @@ class Server:
         while not self.event.is_set():
             data,ipinfo=self.sock.recvfrom(1024)
             self.client.add(ipinfo)
-            # print(data,ipinfo)
+            
+            ip,port = ipinfo
+            info = str(ip) + ':' + str(port)
             
             cmd = data[:16]
             if cmd == b'hi, meu nome eh ':
                 name = data[16:]
-                self.dic[ipinfo] = name.decode()
+                self.dic[info] = name.decode()
                 message = data = '---- ' + name.decode() + ' entrou no chat. ----'
+                print(message)
                 self.send(message.encode())
             elif cmd == b'list':
+                print('lista')
                 print(self.dic)
+                dct = json.dumps(self.dic)
+                self.send(dct.encode())
             elif cmd==b'bye':
-                msg =  '--- ' + self.dic[ipinfo] + ' saiu ---'
+                msg =  '--- ' + self.dic[info] + ' saiu ---'
+                print(msg)
                 self.send(msg.encode())
-                self.dic.pop(ipinfo)
+                self.dic.pop(info)
             else:
                 n = datetime.now()
                 t = n.timetuple()
                 y, m, d, h, mi, sec, wd, yd, i = t
                 time = self.get_str(h) + ':' + self.get_str(mi) + ':' + self.get_str(sec)
 
-                msg =  str(time) + ' ' + self.dic[ipinfo] + ': ' + data.decode()
-                print(msg)
+                msg =  str(time) + ' ' + self.dic[info] + ': ' + data.decode()
+                # print(msg)
                 self.send(msg.encode())
 
     def send(self,data):

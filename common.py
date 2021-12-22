@@ -1,210 +1,96 @@
+import time
+import hashlib
+import warnings
 import socket
-from struct import unpack
+import threading
+from datetime import datetime
 
-# classe principal do socket udp
-class socket_udp:
-    seqNumber = 0
-    connected = {}
+class Server:
+    def __init__(self,ip='127.0.0.1',port=699):
+        self.ip=ip
+        self.port=port
+        self.sock=socket.socket(type=socket.SOCK_DGRAM)
+        self.sock.bind((self.ip,self.port))
+        self.client=set()
+        self.event=threading.Event()
+        self.dic={}
 
-    qtd_participants = 0
+    def start(self):
+        print('Server Ligado!')
+        threading.Thread(target=self.__recv,daemon=True).start()
 
-    # abrindo conexão via socket para o servidor
-    def open_socket_server(self, ip, port):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.server_address = (ip, port)
-        print('Servidor ligado!')
-        self.sock.bind(self.server_address)
+    def stop(self):
+        self.event.set()
+        self.sock.close()
 
-    # abrindo conexão via socket para o client
-    def open_socket_client(self, ip, port):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.server_address = (ip, port)
-        print('Cliente ligado!')
-        self.connect('server', self.server_address)
-
-     # fecha a conexão
-    def close_connection(self):
-        print('\nSocket fechado!')
-        self.sock.close() 
-
-    # enviar mensagem
-    def send(self, msg, address = ''):
-        if not address:
-            address = self.server_address 
-
-        return self.sock.sendto(msg, address)
-
-    # receber mensagem
-    def receive(self, size, address = ''):
-        if not address:
-            return self.sock.recvfrom(size)
+    def get_str(self,t):
+        if t < 10:
+            return '0' + str(t)
         
-        return self.sock.recvfrom(size)
+        return str(t)
     
-    # criar pacotes com a mensagem e a sequencia
-    def make_package(self, msg, seq):
-        cksum = self.check(msg)
-
-        return str({
-            'cksum': cksum,
-            'data': msg,
-            'seq': seq
-        }).encode()
-    
-    # criar e atualizar pacotes
-    def send_message(self, msg, address = ''):
-        self.sock.settimeout(5)
-        if not address:
-            address = self.server_address
-        
-        package = self.make_package(msg, self.get_seq_number(address))
-        
-        ack = False 
-
-        while not ack:
-            self.send(package, address)
-
-            try:
-                msg, recv_address = self.receive(4096)
-            except socket.timeout:
-                print('tempo máximo de espera atigindo')
-            else:
-                msgACK = eval(msg.decode())['data'].decode()
-                if recv_address != address or msgACK != 'ACK':
-                    continue
-                
-                ack = self.recv_package(msg, address)
-        
-        self.update_seq_number(address)
-        self.sock.settimeout(None)
-    
-    # receber mensagens
-    def receiver_message(self):
-        while True:
-            package, address = self.sock.recvfrom(4096)
-            # criar nova conexão
-            new_connection = self.check_connection(package, address)
-            # receber frequencias dos números
-            seq = self.get_seq_number(address)
-            not_corrupt = self.recv_package(package, address, 'receiver')
-            # quantidade máx de participantes 5
-            if self.qtd_participants < 5:
-                self.qtd_participants += 1
-            # caso o pacote não esteja corrompido ele envia e atualiza
-            if not_corrupt:
-                package_ack = self.make_package(bytes('ACK', 'utf8'), seq)
-                self.send(package_ack, address)
-                self.update_seq_number(address)
-                return package, address, new_connection
-            # caso não, ele cria um novo pacote para enviar
-            else:
-                self.send(self.make_package(bytes('ACK', 'utf8'), 1 - seq), address)
-    
-    # mostra o user
-    def get_user(self, address = ''):
-        if not address:
-            address = self.server_address
-        
-        if address in self.connected:
-            return self.connected[address]['user']
-        else:
-            self.connect(address[1], address)
-            return self.connected[address]['user']
-    
-    # mostra lista de conectados 
-    def get_connecteds(self):
-        msg_list = 'Lista de usuarios:'
-        for address in self.connected:
-            msg_list += '\n' + str(self.connected[address]['user'])
-
-        return msg_list
-    
-    # faz uma conexão
-    def connect(self, user, address):
-        self.connected[address] = {
-            'user': user,
-            'seqNumber': 0
-        }
-        print('usuario', user, 'conectado')
-    
-    # checa as conexões
-    def check_connection(self, package, address):
-        if address in self.connected:
-            return False
-        
-        if package:
-            dicio = eval(package.decode())
-            user = dicio['data'].decode()
-            self.connect(user, address)
-            return True
-        else:
-            return False
- 
-    # desconecta
-    def disconnect(self, address):
-        if address in self.connected:
-            print(self.connected[address]['user'] + ' disconnected')
-            del self.connected[address]
-    
-    # pega o número de frequancia
-    def get_seq_number(self, address = ''):
-        if not address:
-            address = self.server_address
-        
-        if address in self.connected:
-            return self.connected[address]['seqNumber']
-        else:
-            self.connect(address[1], address)
-            return self.connected[address]['seqNumber']
-    
-    # atualiza número de frequencia
-    def update_seq_number(self, address = ''):
-        if not address:
-            address = self.server_address
-        
-        self.connected[address]['seqNumber'] = 1 - self.connected[address]['seqNumber']
-    
-    # verifica se existe mensagens
-    def has_message(self):
-        return self.sock.recv is not None
-    
-    # checa as mensagens
-    def check(self, msg):
-        cksum = 0
-
-        array = bytearray(msg)[::-1]
-        lenght = len(array)
-
-        for i in range(lenght):
-            if i % 2:
-                continue 
+    def __recv(self):
+        while not self.event.is_set():
+            data,ipinfo=self.sock.recvfrom(1024)
+            self.client.add(ipinfo)
+            # print(data,ipinfo)
             
-            cksum += (array[i] << 8)
-            if i + 1 < lenght:
-                cksum += array[i+1]
+            cmd = data[:16]
+            if cmd == b'hi, meu nome eh ':
+                name = data[16:]
+                self.dic[ipinfo] = name.decode()
+                message = data = '---- ' + name.decode() + ' entrou no chat. ----'
+                self.send(message.encode())
+            elif cmd == b'list':
+                print(self.dic)
+            elif cmd==b'bye':
+                msg =  '--- ' + self.dic[ipinfo] + ' saiu ---'
+                self.send(msg.encode())
+                self.dic.pop(ipinfo)
+            else:
+                n = datetime.now()
+                t = n.timetuple()
+                y, m, d, h, mi, sec, wd, yd, i = t
+                time = self.get_str(h) + ':' + self.get_str(mi) + ':' + self.get_str(sec)
 
-        while cksum >> 16:
-            cksum = (cksum >> 16) + (cksum & 0xffff)
-        
-        cksum = cksum ^ 0xffff
-        return cksum
+                msg =  str(time) + ' ' + self.dic[ipinfo] + ': ' + data.decode()
+                print(msg)
+                self.send(msg.encode())
+
+    def send(self,data):
+        for client in self.client:
+            self.sock.sendto(data,client)
+
+class Client:
+    def __init__(self,ip='127.0.0.1',port=699):
+        self.ip=ip
+        self.port=port
+        self.sock=socket.socket(type=socket.SOCK_DGRAM)
+        self.event=threading.Event()
+
+    def start(self):
+        print("Client ligado!")
+        while True:
+            msg = input("Escreva algo: ")
+            
+            cmd = msg[:16]
+            if cmd == 'hi, meu nome eh ':
+                self.send(msg)
+                threading.Thread(target=self.__recv).start()
+                break
     
-    # envia para todos as mensagens que chegam no servidor
-    def send_to_all(self, msg):
-        for address in self.connected:
-            self.send_message(msg, address)
+    def stop(self):
+        self.event.set()
+        self.sock.close()
     
-    # recebe o pacote
-    def recv_package(self, msg, address, type='sender'):    
-        dicio = eval(msg.decode())
-        cksum = self.check(dicio['data'])
-        
-        seq = self.get_seq_number(address)
+    def __recv(self):
+        while not self.event.is_set():
+            data=self.sock.recv(1024)
+            print(data.decode())
+            if data == b'bye':
+                print('--- saiu ---')
 
-        if cksum != dicio['cksum']:
-            return False
-
-        if seq != dicio['seq']:
-            return False
-
-        return True
+    def send(self,cmd):
+        cmd=cmd.encode()
+        self.sock.sendto(cmd,(self.ip,self.port))
+    

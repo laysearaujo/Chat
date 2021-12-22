@@ -4,6 +4,7 @@ import threading
 import time
 import hashlib
 import warnings
+import sys
 from datetime import datetime
 
 class Server:
@@ -54,6 +55,7 @@ class Server:
                 msg =  '--- ' + self.dic[info] + ' saiu ---'
                 print(msg)
                 self.send(msg.encode())
+                self.client.remove(ipinfo)
                 self.dic.pop(info)
             else:
                 n = datetime.now()
@@ -63,6 +65,7 @@ class Server:
 
                 msg =  str(time) + ' ' + self.dic[info] + ': ' + data.decode()
                 # print(msg)
+                
                 self.send(msg.encode())
 
     def send(self,data):
